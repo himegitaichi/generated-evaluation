@@ -65,27 +65,40 @@ def get_done_images(user_name):
         return []  # その他のエラーでも、とりあえず「未回答」として扱う
 
 
-# 画像リストの読み込み（修正版：フラットなフォルダ対応）
+# 画像リストの読み込み（修正版：フラットなフォルダ構造用）
 def load_image_list(user_name):
     image_files = []
 
     # imagesフォルダの中身を直接見る
     if os.path.exists(IMAGE_DIR):
-        files = sorted(
-            [f for f in os.listdir(IMAGE_DIR) if f.endswith((".png", ".jpg", ".jpeg"))]
-        )
+        files = os.listdir(IMAGE_DIR)
         for f in files:
-            # ファイル名の先頭が地域コードと一致するか確認
-            for region_code in REGION_MAP.keys():
-                if f.startswith(region_code):
-                    image_files.append(
-                        os.path.join(region_code, f)
-                    )  # 便宜上パス形式にするが、実際はファイル名管理
-                    break
+            if f.lower().endswith((".png", ".jpg", ".jpeg")):
+                # ファイル名の先頭が地域コードと一致するか確認
+                # (例: miyazaki_simple_001.png は "miyazaki" で始まる)
+                for region_code in REGION_MAP.keys():
+                    if f.startswith(region_code):
+                        image_files.append(f)  # ファイル名だけ追加
+                        break
 
-    # --- ソート: ファイル名順 ---
-    def sort_key(filepath):
-        return os.path.basename(filepath)
+    # --- ソートキー関数 ---
+    def sort_key(filename):
+        # ファイル名を分解してソート順を決める
+        # 例: "miyazaki_complex_001.png"
+        try:
+            parts = filename.split("_")
+            region = parts[0]
+            prompt_type = parts[1]
+            number = int(parts[2].split(".")[0])
+
+            # 地域順序の定義（REGION_MAPの並び順に従う）
+            region_order = list(REGION_MAP.keys())
+            region_idx = region_order.index(region) if region in region_order else 99
+
+            # 並び順: 地域順 -> プロンプト(simple/complex) -> 番号
+            return (region_idx, prompt_type, number)
+        except:
+            return (99, filename, 0)  # エラー時はファイル名そのままで末尾へ
 
     image_files.sort(key=sort_key)
 
@@ -93,12 +106,9 @@ def load_image_list(user_name):
     done_files = get_done_images(user_name)
 
     remaining_files = []
-    for filepath in image_files:
-        filename = os.path.basename(filepath)
-        # done_files に含まれていなければ残す
-        # ※ パス形式の違いを吸収するため、ファイル名だけで比較
+    for filename in image_files:
         if filename not in done_files:
-            remaining_files.append(filepath)
+            remaining_files.append(filename)
 
     return remaining_files, len(image_files)
 
@@ -110,7 +120,7 @@ def load_image_list(user_name):
 # ユーザー名入力（サイドバーまたはメイン）
 if "user_name" not in st.session_state or st.session_state["user_name"] == "":
     st.title("🏛️ 建築デザイン評価実験")
-    st.info("👋 お帰りなさい！ 同じ名前を入力すれば、続きから再開できます。")
+    st.info("分類実験のご協力ありがとうございました。続いて「評価」をお願いします。")
 
     name = st.text_input(
         "お名前（またはID）を入力してEnterを押してください", key="input_name"
