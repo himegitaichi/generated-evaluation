@@ -1,12 +1,13 @@
 import streamlit as st
 import os
+import random
 import csv
 import datetime
 from PIL import Image
-import pandas as pd
+import pandas as pd  # 読み込み用に追加
 
 # ==========================================
-# 1. 設定 & データ定義
+# 1. 設定 & データ定義 (変更なし)
 # ==========================================
 IMAGE_DIR = "images"
 RESULTS_DIR = "results_eval"
@@ -21,7 +22,7 @@ REGION_MAP = {
     "saitama": "埼玉",
 }
 
-# 評価項目リスト
+# (中略: METRICS, LIKERT_SCALE はそのまま)
 METRICS = {
     "authenticity": "1. 地域の真正性（その地域らしい雰囲気があるか？）",
     "fidelity": "2. 特徴の再現度（配布資料の特徴を捉えているか？）",
@@ -29,7 +30,6 @@ METRICS = {
     "harmony": "4. 景観調和性（歴史的町並みに馴染むか？）",
 }
 
-# リッカート尺度の定義
 LIKERT_SCALE = {
     "5. 非常にそう思う": 5,
     "4. ややそう思う": 4,
@@ -39,19 +39,18 @@ LIKERT_SCALE = {
 }
 
 # ==========================================
-# 2. 関数定義
+# 2. 関数定義 (ここを修正)
 # ==========================================
 
 
-# 完了済みの画像をチェックする関数
+# ★ 追加: 完了済みの画像を取得する関数
 def get_done_images(user_name):
     csv_path = os.path.join(RESULTS_DIR, f"eval_{user_name}.csv")
     if not os.path.exists(csv_path):
         return []
-
     try:
-        # CSVを読み込んで、終わったファイル名のリストを返す
         df = pd.read_csv(csv_path)
+        # 'image_file' 列にあるファイル名のリストを返す
         if "image_file" in df.columns:
             return df["image_file"].tolist()
         return []
@@ -59,7 +58,7 @@ def get_done_images(user_name):
         return []
 
 
-# 画像リストの読み込み（順序固定 & 済み除外）
+# ★ 修正: ユーザー名を受け取り、未回答の画像だけをロードする
 def load_image_list(user_name):
     image_files = []
 
@@ -71,17 +70,16 @@ def load_image_list(user_name):
                 [f for f in os.listdir(region_dir) if f.endswith((".png", ".jpg"))]
             )
             for f in files:
-                # パスではなくファイル名だけで管理したほうが安全
                 image_files.append(os.path.join(region_code, f))
 
-    # --- ソート: ファイル名順 ---
+    # ソート (順序固定)
     def sort_key(filepath):
         return os.path.basename(filepath)
 
     image_files.sort(key=sort_key)
 
-    # --- 済み画像を除外 ---
-    done_files = get_done_images(user_name)
+    # ★ 済み画像を除外する処理
+    done_files = get_done_images(user_name)  # ファイル名のリスト
 
     remaining_files = []
     for filepath in image_files:
@@ -89,14 +87,14 @@ def load_image_list(user_name):
         if filename not in done_files:
             remaining_files.append(filepath)
 
-    return remaining_files, len(image_files)
+    return remaining_files, len(image_files)  # 残りリストと、全枚数を返す
 
 
 # ==========================================
-# 3. アプリケーション本体
+# 3. アプリケーション本体 (ここも修正)
 # ==========================================
 
-# ユーザー名入力（サイドバーまたはメイン）
+# ユーザー名入力
 if "user_name" not in st.session_state or st.session_state["user_name"] == "":
     st.title("🏛️ 建築デザイン評価実験")
     st.info("👋 お帰りなさい！ 同じ名前を入力すれば、続きから再開できます。")
@@ -112,7 +110,7 @@ if "user_name" not in st.session_state or st.session_state["user_name"] == "":
 else:
     user_name = st.session_state["user_name"]
 
-    # 画像リストの更新（未回答のものだけ取得）
+    # ★ 毎回リストを更新して、終わったものを除外する
     target_images, total_count = load_image_list(user_name)
     done_count = total_count - len(target_images)
 
@@ -120,12 +118,10 @@ else:
     if not target_images:
         st.balloons()
         st.success(f"全ての画像（{total_count}枚）の評価が完了しています！")
-        st.info(
-            "データはサーバーに保存されています。ブラウザを閉じて終了してください。"
-        )
-        st.stop()
+        st.info("データは保存されています。ブラウザを閉じて終了してください。")
+        st.stop()  # 処理を止める
 
-    # 現在の画像（リストの先頭）
+    # 現在の画像（リストの先頭を表示すればよい）
     current_filepath = target_images[0]
     filename = os.path.basename(current_filepath)
 
@@ -144,7 +140,7 @@ else:
     st.progress(done_count / total_count)
     st.caption(f"進捗: {done_count + 1} / {total_count} 枚目 （完了: {done_count}枚）")
 
-    # 画像表示
+    # 画像表示レイアウト
     col1, col2 = st.columns([1.5, 1])
     with col1:
         img_full_path = os.path.join(IMAGE_DIR, current_filepath)
@@ -155,7 +151,6 @@ else:
             st.error(f"画像読み込みエラー: {img_full_path}")
 
     with col2:
-        # 特徴説明を削除し、正解の提示のみにシンプル化
         st.subheader(f"正解設定: 【 {true_region_name} 】")
         st.info(
             f"お手元の資料の **「{true_region_name}」** のページを参照して評価してください。"
@@ -164,6 +159,7 @@ else:
     st.markdown("---")
 
     # フォーム
+    # keyにfilenameを含めることで、画像が変わるたびにフォームをリセット
     with st.form(key=f"form_{filename}"):
         st.write("### 評価")
         input_scores = {}
@@ -195,24 +191,25 @@ else:
                 "harmony": input_scores["harmony"],
             }
 
-            # 逐次保存処理 (Appendモード)
+            # ★ ここで即時保存 (Appendモード)
             csv_path = os.path.join(RESULTS_DIR, f"eval_{user_name}.csv")
             file_exists = os.path.exists(csv_path)
 
             try:
                 with open(csv_path, "a", newline="", encoding="utf-8") as f:
                     writer = csv.DictWriter(f, fieldnames=record.keys())
+                    # 初回のみヘッダーを書く
                     if not file_exists:
                         writer.writeheader()
                     writer.writerow(record)
 
                 st.success("保存しました！")
-                st.rerun()
+                st.rerun()  # リロードして次の画像へ（リストから今の画像が消える）
 
             except Exception as e:
                 st.error(f"保存エラー: {e}")
 
-# --- 管理者メニュー ---
+# --- 管理者メニュー (変更なし) ---
 with st.sidebar:
     st.markdown("---")
     st.write(f"Login: {st.session_state.get('user_name', 'Guest')}")
