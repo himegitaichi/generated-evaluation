@@ -1,18 +1,17 @@
 import streamlit as st
 import os
-import random
 import csv
 import datetime
 from PIL import Image
+import pandas as pd
 
 # ==========================================
-# 1. 設定
+# 1. 設定 & データ定義
 # ==========================================
 IMAGE_DIR = "images"
 RESULTS_DIR = "results_eval"
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-# ファイル名のコードと表示名の対応
 REGION_MAP = {
     "saga": "佐賀",
     "miyazaki": "宮崎",
@@ -40,161 +39,153 @@ LIKERT_SCALE = {
 }
 
 # ==========================================
-# 2. セッションの初期化
-# ==========================================
-if "images" not in st.session_state:
-    if os.path.exists(IMAGE_DIR):
-        all_images = [
-            f
-            for f in os.listdir(IMAGE_DIR)
-            if f.lower().endswith((".png", ".jpg", ".jpeg"))
-        ]
-
-        # ▼▼▼ 修正ここから ▼▼▼
-
-        # 1. 表示したい順序を定義（ここに書いた順に表示されます）
-        #    REGION_MAPのキーと一致させてください
-        REGION_ORDER = [
-            "saga",  # 佐賀
-            "miyazaki",  # 宮崎
-            "osaka",  # 大阪
-            "nara",  # 奈良
-            "shiga",  # 滋賀
-            "saitama",  # 埼玉
-        ]
-
-        # 2. 並び替え用の関数を定義
-        def sort_key(filename):
-            # ファイル名から "saga" などを取り出す
-            try:
-                code = filename.split("_")[0]
-            except:
-                code = ""
-
-            # リストの何番目にあるかを探す（リストにないものは一番後ろへ）
-            if code in REGION_ORDER:
-                return (REGION_ORDER.index(code), filename)
-            else:
-                return (len(REGION_ORDER), filename)
-
-        # 3. 定義した順序で並び替え実行
-        all_images.sort(key=sort_key)
-
-        # ▲▲▲ 修正ここまで ▲▲▲
-
-    else:
-        st.error("画像フォルダが見つかりません。")
-        all_images = []
-
-    st.session_state["images"] = all_images
-    # 以下、変更なし
-    st.session_state["current_index"] = 0
-    st.session_state["results"] = []
-    st.session_state["user_name"] = ""
-    st.session_state["started"] = False
-    st.session_state["finished"] = False
-
-# ==========================================
-# 3. 画面構築
+# 2. 関数定義
 # ==========================================
 
-# --- 画面A: スタート画面 ---
-if not st.session_state["started"]:
-    st.title("🏛️ 建築デザイン評価実験（フェーズ2）")
-    st.info("分類実験のご協力ありがとうございました。続いて「評価」をお願いします。")
-    st.markdown(
-        """
-    **【手順】**
-    1. お手元の **「参考資料（カンニングシート）」** をご用意ください。
-    2. 画面に表示される画像が **「どこの地域の設定か」** をお伝えします。
-    3. 資料と照らし合わせながら、**4つの項目** を評価してください。
-    """
-    )
 
-    name_input = st.text_input(
-        "お名前（またはID）を入力してください", placeholder="例: yamada"
-    )
+# 完了済みの画像をチェックする関数
+def get_done_images(user_name):
+    csv_path = os.path.join(RESULTS_DIR, f"eval_{user_name}.csv")
+    if not os.path.exists(csv_path):
+        return []
 
-    if st.button("評価を開始する", type="primary"):
-        if name_input:
-            st.session_state["user_name"] = name_input
-            st.session_state["started"] = True
-            st.rerun()
-        else:
-            st.warning("名前を入力してください。")
+    try:
+        # CSVを読み込んで、終わったファイル名のリストを返す
+        df = pd.read_csv(csv_path)
+        if "image_file" in df.columns:
+            return df["image_file"].tolist()
+        return []
+    except:
+        return []
 
-# --- 画面C: 終了画面 ---
-elif st.session_state["finished"]:
-    st.balloons()
-    st.success(
-        f"お疲れ様でした！ 全{len(st.session_state['results'])}枚の評価が完了しました。"
-    )
-    st.warning(
-        "この画面のままブラウザを閉じて終了してください。（データは管理者に送信されました）"
-    )
 
-# --- 画面B: 評価メイン画面 ---
+# 画像リストの読み込み（順序固定 & 済み除外）
+def load_image_list(user_name):
+    image_files = []
+
+    # フォルダ順に取得
+    for region_code in REGION_MAP.keys():
+        region_dir = os.path.join(IMAGE_DIR, region_code)
+        if os.path.exists(region_dir):
+            files = sorted(
+                [f for f in os.listdir(region_dir) if f.endswith((".png", ".jpg"))]
+            )
+            for f in files:
+                # パスではなくファイル名だけで管理したほうが安全
+                image_files.append(os.path.join(region_code, f))
+
+    # --- ソート: ファイル名順 ---
+    def sort_key(filepath):
+        return os.path.basename(filepath)
+
+    image_files.sort(key=sort_key)
+
+    # --- 済み画像を除外 ---
+    done_files = get_done_images(user_name)
+
+    remaining_files = []
+    for filepath in image_files:
+        filename = os.path.basename(filepath)
+        if filename not in done_files:
+            remaining_files.append(filepath)
+
+    return remaining_files, len(image_files)
+
+
+# ==========================================
+# 3. アプリケーション本体
+# ==========================================
+
+# ユーザー名入力（サイドバーまたはメイン）
+if "user_name" not in st.session_state or st.session_state["user_name"] == "":
+    st.title("🏛️ 建築デザイン評価実験")
+    st.info("👋 お帰りなさい！ 同じ名前を入力すれば、続きから再開できます。")
+
+    name = st.text_input(
+        "お名前（またはID）を入力してEnterを押してください", key="input_name"
+    )
+    if name:
+        st.session_state["user_name"] = name
+        st.rerun()
+
+# 評価画面
 else:
-    # 現在の画像情報
-    current_idx = st.session_state["current_index"]
-    total_images = len(st.session_state["images"])
-    filename = st.session_state["images"][current_idx]
+    user_name = st.session_state["user_name"]
 
-    # ファイル名解析
+    # 画像リストの更新（未回答のものだけ取得）
+    target_images, total_count = load_image_list(user_name)
+    done_count = total_count - len(target_images)
+
+    # 全部終わっている場合
+    if not target_images:
+        st.balloons()
+        st.success(f"全ての画像（{total_count}枚）の評価が完了しています！")
+        st.info(
+            "データはサーバーに保存されています。ブラウザを閉じて終了してください。"
+        )
+        st.stop()
+
+    # 現在の画像（リストの先頭）
+    current_filepath = target_images[0]
+    filename = os.path.basename(current_filepath)
+
+    # 情報解析
     try:
         parts = filename.split("_")
-        true_region_code = parts[0]  # saga
-        prompt_type = parts[1]  # simple
+        true_region_code = parts[0]
+        prompt_type = parts[1]
     except:
         true_region_code = "unknown"
         prompt_type = "unknown"
 
     true_region_name = REGION_MAP.get(true_region_code, "不明")
 
-    # 進捗バー
-    st.progress((current_idx + 1) / total_images)
-    st.caption(f"画像: {current_idx + 1} / {total_images}")
+    # 進捗表示
+    st.progress(done_count / total_count)
+    st.caption(f"進捗: {done_count + 1} / {total_count} 枚目 （完了: {done_count}枚）")
 
-    # --- レイアウト: 画像と正解情報をシンプルに表示 ---
-    st.subheader(f"正解設定: 【 {true_region_name} 】")
-    st.info(f"お手元の資料の **「{true_region_name}」** のページをご覧ください。")
+    # 画像表示
+    col1, col2 = st.columns([1.5, 1])
+    with col1:
+        img_full_path = os.path.join(IMAGE_DIR, current_filepath)
+        try:
+            image = Image.open(img_full_path)
+            st.image(image, use_container_width=True)
+        except:
+            st.error(f"画像読み込みエラー: {img_full_path}")
 
-    img_path = os.path.join(IMAGE_DIR, filename)
-    try:
-        image = Image.open(img_path)
-        # 画像を大きく表示するために use_container_width=True
-        st.image(image, use_container_width=True)
-    except:
-        st.error(f"画像エラー: {filename}")
+    with col2:
+        # 特徴説明を削除し、正解の提示のみにシンプル化
+        st.subheader(f"正解設定: 【 {true_region_name} 】")
+        st.info(
+            f"お手元の資料の **「{true_region_name}」** のページを参照して評価してください。"
+        )
 
     st.markdown("---")
 
-    # --- 評価フォーム ---
-    with st.form(key=f"form_{current_idx}"):
-        st.write("### 評価アンケート")
-
+    # フォーム
+    with st.form(key=f"form_{filename}"):
+        st.write("### 評価")
         input_scores = {}
-
         for key, question in METRICS.items():
             st.markdown(f"**{question}**")
-            selected_label = st.radio(
-                f"{key}_label",
-                options=list(LIKERT_SCALE.keys()),
-                index=2,  # デフォルト: 3. どちらともいえない
+            label = st.radio(
+                f"{key}_radio",
+                list(LIKERT_SCALE.keys()),
+                index=2,
                 horizontal=True,
                 label_visibility="collapsed",
-                key=f"{key}_{current_idx}",
             )
-            input_scores[key] = LIKERT_SCALE[selected_label]
-            st.write("")  # 余白
+            input_scores[key] = LIKERT_SCALE[label]
+            st.write("")
 
-        submit_btn = st.form_submit_button("次の画像へ", type="primary")
+        submit = st.form_submit_button("評価を保存して次へ", type="primary")
 
-        if submit_btn:
-            # データの記録
+        if submit:
+            # データの作成
             record = {
                 "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "user": st.session_state["user_name"],
+                "user": user_name,
                 "image_file": filename,
                 "region": true_region_code,
                 "prompt_type": prompt_type,
@@ -203,42 +194,32 @@ else:
                 "naturalness": input_scores["naturalness"],
                 "harmony": input_scores["harmony"],
             }
-            st.session_state["results"].append(record)
 
-            # 次へ進む or 終了
-            if current_idx + 1 < total_images:
-                st.session_state["current_index"] += 1
-                st.rerun()
-            else:
-                # CSV保存処理
-                csv_filename = f"eval_{st.session_state['user_name']}.csv"
-                csv_path = os.path.join(RESULTS_DIR, csv_filename)
+            # 逐次保存処理 (Appendモード)
+            csv_path = os.path.join(RESULTS_DIR, f"eval_{user_name}.csv")
+            file_exists = os.path.exists(csv_path)
 
-                if st.session_state["results"]:
-                    fieldnames = record.keys()
-                    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-                        writer = csv.DictWriter(f, fieldnames=fieldnames)
+            try:
+                with open(csv_path, "a", newline="", encoding="utf-8") as f:
+                    writer = csv.DictWriter(f, fieldnames=record.keys())
+                    if not file_exists:
                         writer.writeheader()
-                        writer.writerows(st.session_state["results"])
+                    writer.writerow(record)
 
-                st.session_state["finished"] = True
+                st.success("保存しました！")
                 st.rerun()
+
+            except Exception as e:
+                st.error(f"保存エラー: {e}")
 
 # --- 管理者メニュー ---
 with st.sidebar:
     st.markdown("---")
-    st.write("🔧 管理者メニュー")
+    st.write(f"Login: {st.session_state.get('user_name', 'Guest')}")
     if st.checkbox("結果ファイルを表示"):
         if os.path.exists(RESULTS_DIR):
             files = os.listdir(RESULTS_DIR)
-            if not files:
-                st.caption("まだデータはありません")
             for f in files:
                 path = os.path.join(RESULTS_DIR, f)
                 with open(path, "rb") as file:
-                    st.download_button(
-                        label=f"📥 Download {f}",
-                        data=file,
-                        file_name=f,
-                        mime="text/csv",
-                    )
+                    st.download_button(f"📥 {f}", file, file_name=f)
