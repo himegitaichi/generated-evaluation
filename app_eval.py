@@ -49,14 +49,45 @@ if "images" not in st.session_state:
             for f in os.listdir(IMAGE_DIR)
             if f.lower().endswith((".png", ".jpg", ".jpeg"))
         ]
-        # random.shuffle(all_images)  <-- この行を削除またはコメントアウト
-        all_images.sort()  # <-- これを追加（ファイル名順に並び替える）
+
+        # ▼▼▼ 修正ここから ▼▼▼
+
+        # 1. 表示したい順序を定義（ここに書いた順に表示されます）
+        #    REGION_MAPのキーと一致させてください
+        REGION_ORDER = [
+            "saga",  # 佐賀
+            "miyazaki",  # 宮崎
+            "osaka",  # 大阪
+            "nara",  # 奈良
+            "shiga",  # 滋賀
+            "saitama",  # 埼玉
+        ]
+
+        # 2. 並び替え用の関数を定義
+        def sort_key(filename):
+            # ファイル名から "saga" などを取り出す
+            try:
+                code = filename.split("_")[0]
+            except:
+                code = ""
+
+            # リストの何番目にあるかを探す（リストにないものは一番後ろへ）
+            if code in REGION_ORDER:
+                return (REGION_ORDER.index(code), filename)
+            else:
+                return (len(REGION_ORDER), filename)
+
+        # 3. 定義した順序で並び替え実行
+        all_images.sort(key=sort_key)
+
+        # ▲▲▲ 修正ここまで ▲▲▲
+
     else:
         st.error("画像フォルダが見つかりません。")
         all_images = []
 
     st.session_state["images"] = all_images
-    # 以下変更なし
+    # 以下、変更なし
     st.session_state["current_index"] = 0
     st.session_state["results"] = []
     st.session_state["user_name"] = ""
