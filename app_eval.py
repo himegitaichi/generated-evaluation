@@ -65,20 +65,23 @@ def get_done_images(user_name):
         return []  # その他のエラーでも、とりあえず「未回答」として扱う
 
 
-# 画像リストの読み込み（順序固定 & 済み除外）
+# 画像リストの読み込み（修正版：フラットなフォルダ対応）
 def load_image_list(user_name):
     image_files = []
 
-    # フォルダ順に取得（REGION_MAPのキー順）
-    for region_code in REGION_MAP.keys():
-        region_dir = os.path.join(IMAGE_DIR, region_code)
-        if os.path.exists(region_dir):
-            files = sorted(
-                [f for f in os.listdir(region_dir) if f.endswith((".png", ".jpg"))]
-            )
-            for f in files:
-                # パスではなくファイル名だけで管理したほうが安全
-                image_files.append(os.path.join(region_code, f))
+    # imagesフォルダの中身を直接見る
+    if os.path.exists(IMAGE_DIR):
+        files = sorted(
+            [f for f in os.listdir(IMAGE_DIR) if f.endswith((".png", ".jpg", ".jpeg"))]
+        )
+        for f in files:
+            # ファイル名の先頭が地域コードと一致するか確認
+            for region_code in REGION_MAP.keys():
+                if f.startswith(region_code):
+                    image_files.append(
+                        os.path.join(region_code, f)
+                    )  # 便宜上パス形式にするが、実際はファイル名管理
+                    break
 
     # --- ソート: ファイル名順 ---
     def sort_key(filepath):
@@ -92,6 +95,8 @@ def load_image_list(user_name):
     remaining_files = []
     for filepath in image_files:
         filename = os.path.basename(filepath)
+        # done_files に含まれていなければ残す
+        # ※ パス形式の違いを吸収するため、ファイル名だけで比較
         if filename not in done_files:
             remaining_files.append(filepath)
 
