@@ -49,12 +49,14 @@ if "images" not in st.session_state:
             for f in os.listdir(IMAGE_DIR)
             if f.lower().endswith((".png", ".jpg", ".jpeg"))
         ]
-        random.shuffle(all_images)
+        # random.shuffle(all_images)  <-- この行を削除またはコメントアウト
+        all_images.sort()  # <-- これを追加（ファイル名順に並び替える）
     else:
         st.error("画像フォルダが見つかりません。")
         all_images = []
 
     st.session_state["images"] = all_images
+    # 以下変更なし
     st.session_state["current_index"] = 0
     st.session_state["results"] = []
     st.session_state["user_name"] = ""
